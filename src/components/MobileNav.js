@@ -1,91 +1,142 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 
-export default function MobileNav() {
+export default function MobileNav({
+  activeSaksiTab = "realcount",
+  onChangeSaksiTab,
+}) {
   const pathname = usePathname()
+  const router = useRouter()
+  const [role, setRole] = useState("relawan")
 
-  const navItems = [
-    {
-      label: "Setoran",
-      href: "/beranda-setoran",
-      icon: "how_to_vote",
-      isCenter: false,
-    },
-    {
-      label: "Input",
-      href: "/input-cepat-warga",
-      icon: "person_add",
-      isCenter: true,
-    },
-    {
-      label: "Saksi TPS",
-      href: "/saksi-tps",
-      icon: "fact_check",
-      isCenter: false,
-    },
-    {
-      label: "War Room",
-      href: "/overview",
-      icon: "space_dashboard",
-      isCenter: false,
-    },
-  ]
+  useEffect(() => {
+    const raw = localStorage.getItem("mytps_user")
+    if (!raw) {
+      router.replace("/login")
+      return
+    }
+    try {
+      const user = JSON.parse(raw)
+      const userRole = user.peran || "relawan"
+      setRole(userRole)
+
+      if (userRole === "relawan" && pathname.startsWith("/saksi-tps")) {
+        router.replace("/input-cepat-warga")
+      } else if (
+        userRole === "saksi" &&
+        (pathname.startsWith("/input-cepat-warga") ||
+          pathname.startsWith("/beranda-setoran"))
+      ) {
+        router.replace("/saksi-tps")
+      }
+    } catch {
+      router.replace("/login")
+    }
+  }, [pathname, router])
+
+  function handleLogout() {
+    localStorage.removeItem("mytps_user")
+    router.push("/login")
+  }
 
   return (
     <nav
-      aria-label="Navigasi Utama Lapangan"
-      className="fixed bottom-0 inset-x-0 w-full z-50 pb-safe bg-surface-card/95 backdrop-blur-md border-t border-surface-border shadow-[0_-2px_12px_rgba(0,0,0,0.05)]"
+      aria-label="Navigasi Utama"
+      className="fixed bottom-0 inset-x-0 w-full z-50 pb-safe bg-surface-card border-t border-surface-border shadow-[0_-2px_12px_rgba(0,0,0,0.06)]"
     >
-      <div className="flex items-center justify-around h-16 max-w-lg mx-auto px-space-xs">
-        {navItems.map((item) => {
-          const isActive = pathname === item.href
-
-          if (item.isCenter) {
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                aria-current={isActive ? "page" : undefined}
-                className={`flex flex-col items-center justify-center min-w-[64px] min-h-[44px] py-1 transition-colors rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
-                  isActive
-                    ? "text-primary font-label-md"
-                    : "text-on-surface-variant hover:text-on-surface"
-                }`}
-              >
-                <div className="flex items-center justify-center w-10 h-10 -mt-3 rounded-full shadow-sm bg-primary-container text-on-primary">
-                  <span className="material-symbols-outlined text-[22px]">
-                    {item.icon}
-                  </span>
-                </div>
-                <span className="font-label-sm text-label-sm mt-0.5">
-                  {item.label}
-                </span>
-              </Link>
-            )
-          }
-
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              aria-current={isActive ? "page" : undefined}
-              className={`flex flex-col items-center justify-center min-w-[64px] min-h-[44px] py-1 transition-colors rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
-                isActive
-                  ? "text-primary font-bold"
-                  : "text-on-surface-variant hover:text-on-surface"
+      <div className="grid items-center h-16 max-w-lg grid-cols-5 gap-1 px-2 mx-auto">
+        {role === "saksi" ? (
+          <>
+            <button
+              type="button"
+              onClick={() =>
+                onChangeSaksiTab
+                  ? onChangeSaksiTab("realcount")
+                  : router.push("/saksi-tps")
+              }
+              className={`col-span-2 flex flex-col items-center justify-center min-h-[48px] rounded-xl transition-colors ${
+                activeSaksiTab === "realcount"
+                  ? "bg-status-kita-bg text-status-kita-text font-bold border border-status-kita-border"
+                  : "text-on-surface-variant hover:bg-surface-container-low"
               }`}
             >
-              <span className="material-symbols-outlined text-[24px]">
-                {item.icon}
+              <span className="material-symbols-outlined text-[22px]">
+                calculate
               </span>
-              <span className="font-label-sm text-label-sm mt-0.5">
-                {item.label}
+              <span className="text-[11px] mt-0.5 truncate">
+                1. Input Realcount
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() =>
+                onChangeSaksiTab
+                  ? onChangeSaksiTab("pengunjung")
+                  : router.push("/saksi-tps")
+              }
+              className={`col-span-2 flex flex-col items-center justify-center min-h-[48px] rounded-xl transition-colors ${
+                activeSaksiTab === "pengunjung"
+                  ? "bg-status-kita-bg text-status-kita-text font-bold border border-status-kita-border"
+                  : "text-on-surface-variant hover:bg-surface-container-low"
+              }`}
+            >
+              <span className="material-symbols-outlined text-[22px]">
+                how_to_reg
+              </span>
+              <span className="text-[11px] mt-0.5 truncate">
+                2. Pengunjung TPS
+              </span>
+            </button>
+          </>
+        ) : (
+          <>
+            <Link
+              href="/input-cepat-warga"
+              className={`col-span-2 flex flex-col items-center justify-center min-h-[48px] rounded-xl transition-colors ${
+                pathname === "/input-cepat-warga"
+                  ? "bg-status-kita-bg text-status-kita-text font-bold border border-status-kita-border"
+                  : "text-on-surface-variant hover:bg-surface-container-low"
+              }`}
+            >
+              <span className="material-symbols-outlined text-[22px]">
+                person_add
+              </span>
+              <span className="text-[11px] mt-0.5 truncate">
+                1. Input Pemilih
               </span>
             </Link>
-          )
-        })}
+
+            <Link
+              href="/beranda-setoran"
+              className={`col-span-2 flex flex-col items-center justify-center min-h-[48px] rounded-xl transition-colors ${
+                pathname === "/beranda-setoran"
+                  ? "bg-status-kita-bg text-status-kita-text font-bold border border-status-kita-border"
+                  : "text-on-surface-variant hover:bg-surface-container-low"
+              }`}
+            >
+              <span className="material-symbols-outlined text-[22px]">
+                fact_check
+              </span>
+              <span className="text-[11px] mt-0.5 truncate">
+                2. Data Terinput
+              </span>
+            </Link>
+          </>
+        )}
+
+        <button
+          type="button"
+          onClick={handleLogout}
+          className="col-span-1 flex flex-col items-center justify-center min-h-[48px] rounded-xl text-status-lain-text hover:bg-status-lain-bg transition-colors"
+          title="Keluar Akun"
+        >
+          <span className="material-symbols-outlined text-[20px]">logout</span>
+          <span className="text-[11px] font-semibold mt-0.5">Keluar</span>
+        </button>
       </div>
     </nav>
   )

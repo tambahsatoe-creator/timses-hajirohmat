@@ -4,193 +4,248 @@ import { useState, useEffect, useMemo } from "react"
 import MobileNav from "@/components/MobileNav"
 import { supabase } from "@/lib/supabase"
 
-const INITIAL_DPT_LIST = [
+const INITIAL_VISITORS = [
   {
-    id: "dpt-1",
+    id: "v1",
     no_dpt: "#042",
     nama_lengkap: "Ahmad Supardi",
     rt: "RT 02",
-    jumlah_anggota_kk: 3,
-    nomor_wa: "6281234567890",
-    status_dukungan: "hijau",
     sudah_coblos: false,
     waktu_coblos: null,
   },
   {
-    id: "dpt-2",
+    id: "v2",
     no_dpt: "#018",
     nama_lengkap: "Siti Aminah",
     rt: "RT 01",
-    jumlah_anggota_kk: 2,
-    nomor_wa: "6285298765432",
-    status_dukungan: "kuning",
     sudah_coblos: false,
     waktu_coblos: null,
   },
   {
-    id: "dpt-3",
+    id: "v3",
     no_dpt: "#031",
     nama_lengkap: "Hartono Mulyo",
     rt: "RT 02",
-    jumlah_anggota_kk: 4,
-    nomor_wa: "6281988776655",
-    status_dukungan: "hijau",
     sudah_coblos: true,
     waktu_coblos: "08:45 WIB",
   },
   {
-    id: "dpt-4",
+    id: "v4",
     no_dpt: "#055",
     nama_lengkap: "Budi Prasetyo",
     rt: "RT 03",
-    jumlah_anggota_kk: 1,
-    nomor_wa: "6287711223344",
-    status_dukungan: "merah",
     sudah_coblos: true,
     waktu_coblos: "09:12 WIB",
   },
 ]
 
 export default function SaksiTpsPage() {
-  const [voters, setVoters] = useState(INITIAL_DPT_LIST)
+  const [activeTab, setActiveTab] = useState("realcount")
+  const [visitors, setVisitors] = useState(INITIAL_VISITORS)
   const [searchQuery, setSearchQuery] = useState("")
-  const [filterTab, setFilterTab] = useState("all")
-  const [showRealCountModal, setShowRealCountModal] = useState(false)
+  const [filterHadir, setFilterHadir] = useState("all")
+  const [namaPengunjungBaru, setNamaPengunjungBaru] = useState("")
+  const [rtPengunjungBaru, setRtPengunjungBaru] = useState("RT 01")
+
   const [tallyForm, setTallyForm] = useState({
+    kode_tps: "TPS 01",
     paslon1: 145,
     paslon2: 38,
     paslon3: 22,
     tidakSah: 3,
   })
+  const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState("")
 
   useEffect(() => {
-    loadTpsVoters()
+    loadData()
   }, [])
 
-  async function loadTpsVoters() {
+  async function loadData() {
     if (!supabase) return
     try {
-      const { data, error } = await supabase
+      const { data: vData } = await supabase
         .from("pemilih")
         .select("*")
         .order("sudah_coblos", { ascending: true })
-      if (!error && data && data.length > 0) {
-        setVoters(data)
+      if (vData && vData.length > 0) setVisitors(vData)
+
+      const { data: tData } = await supabase
+        .from("tps")
+        .select("*")
+        .eq("kode_tps", tallyForm.kode_tps)
+        .maybeSingle()
+      if (tData) {
+        setTallyForm((prev) => ({
+          ...prev,
+          paslon1: tData.suara_paslon_1 ?? prev.paslon1,
+          paslon2: tData.suara_paslon_2 ?? prev.paslon2,
+          paslon3: tData.suara_paslon_3 ?? prev.paslon3,
+          tidakSah: tData.suara_tidak_sah ?? prev.tidakSah,
+        }))
       }
     } catch {
-      // Gunakan daftar cadangan jika jaringan terputus
+      // Gunakan data lokal jika koneksi terputus
     }
   }
 
-  async function handleMarkVoted(voterId) {
+  function showNotice(msg) {
+    setNotice(msg)
+    setTimeout(() => setNotice(""), 3000)
+  }
+
+  async function handleSaveRealCount(e) {
+    e.preventDefault()
+    setSaving(true)
+    try {
+      if (supabase) {
+        await supabase
+          .from("tps")
+          .update({
+            suara_paslon_1: Number(tallyForm.paslon1) || 0,
+            suara_paslon_2: Number(tallyForm.paslon2) || 0,
+            suara_paslon_3: Number(tallyForm.paslon3) || 0,
+            suara_tidak_sah: Number(tallyForm.tidakSah) || 0,
+          })
+          .eq("kode_tps", tallyForm.kode_tps)
+      }
+      showNotice(
+        `Data Suara Real Count ${tallyForm.kode_tps} berhasil disimpan.`,
+      )
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleToggleHadir(visitor) {
+    const now = new Date()
+    const jam = `${String(now.getHours()).padStart(2, "0")}:${String(
+      now.getMinutes(),
+    ).padStart(2, "0")} WIB`
+    const nextState = !visitor.sudah_coblos
+
+    setVisitors((prev) =>
+      prev.map((v) =>
+        v.id === visitor.id
+          ? {
+              ...v,
+              sudah_coblos: nextState,
+              waktu_coblos: nextState ? jam : null,
+            }
+          : v,
+      ),
+    )
+
+    if (supabase && String(visitor.id).length > 8) {
+      await supabase
+        .from("pemilih")
+        .update({
+          sudah_coblos: nextState,
+          waktu_coblos: nextState ? jam : null,
+        })
+        .eq("id", visitor.id)
+    }
+    showNotice(
+      nextState
+        ? `${visitor.nama_lengkap} ditandai SUDAH HADIR di TPS.`
+        : `Status kehadiran ${visitor.nama_lengkap} dibatalkan.`,
+    )
+  }
+
+  async function handleAddVisitor(e) {
+    e.preventDefault()
+    if (!namaPengunjungBaru.trim()) return
     const now = new Date()
     const jam = `${String(now.getHours()).padStart(2, "0")}:${String(
       now.getMinutes(),
     ).padStart(2, "0")} WIB`
 
-    setVoters((prev) =>
-      prev.map((v) =>
-        v.id === voterId ? { ...v, sudah_coblos: true, waktu_coblos: jam } : v,
-      ),
+    const newEntry = {
+      id: `local-${Date.now()}`,
+      no_dpt: `#${Math.floor(100 + Math.random() * 899)}`,
+      nama_lengkap: namaPengunjungBaru.trim(),
+      nama_kk: namaPengunjungBaru.trim(),
+      dusun: "Dusun 01 Krajan",
+      rt: rtPengunjungBaru,
+      tps: tallyForm.kode_tps,
+      status_dukungan: "hijau",
+      sudah_coblos: true,
+      waktu_coblos: jam,
+    }
+
+    setVisitors((prev) => [newEntry, ...prev])
+    setNamaPengunjungBaru("")
+    showNotice(
+      `Pengunjung TPS "${newEntry.nama_lengkap}" berhasil dicatat hadir.`,
     )
 
     if (supabase) {
-      await supabase
-        .from("pemilih")
-        .update({ sudah_coblos: true, waktu_coblos: jam })
-        .eq("id", voterId)
+      const { id, ...dbPayload } = newEntry
+      await supabase.from("pemilih").insert([dbPayload])
     }
-
-    setNotice("Kehadiran pemilih berhasil dicatat di TPS 01.")
-    setTimeout(() => setNotice(""), 2500)
   }
 
-  async function handleSaveRealCount(e) {
-    e.preventDefault()
-    if (supabase) {
-      await supabase
-        .from("tps")
-        .update({
-          suara_paslon_1: Number(tallyForm.paslon1),
-          suara_paslon_2: Number(tallyForm.paslon2),
-          suara_paslon_3: Number(tallyForm.paslon3),
-          suara_tidak_sah: Number(tallyForm.tidakSah),
-        })
-        .eq("kode_tps", "TPS 01")
-    }
-    setShowRealCountModal(false)
-    setNotice("Angka Real Count TPS 01 berhasil dikirim ke War Room.")
-    setTimeout(() => setNotice(""), 3000)
-  }
+  const totalSuaraSah =
+    (Number(tallyForm.paslon1) || 0) +
+    (Number(tallyForm.paslon2) || 0) +
+    (Number(tallyForm.paslon3) || 0)
 
-  function handleShareUnvoted() {
-    const belumList = voters
-      .filter((v) => !v.sudah_coblos)
-      .map((v) => `- ${v.nama_lengkap} (${v.rt})`)
-      .join("%0A")
-    const text = `Daftar Pemilih TPS 01 Belum Hadir:%0A${belumList || "Semua sudah hadir"}`
-    window.open(`https://wa.me/?text=${text}`, "_blank")
-  }
-
-  const stats = useMemo(() => {
-    const totalDpt = 142
-    const hadir = 96 + voters.filter((v) => v.sudah_coblos).length
-    const belum = Math.max(0, totalDpt - hadir)
-    const kitaCount = voters.filter((v) => v.status_dukungan === "hijau").length
-    return { totalDpt, hadir, belum, kitaCount }
-  }, [voters])
-
-  const filteredList = useMemo(() => {
+  const filteredVisitors = useMemo(() => {
     const q = searchQuery.toLowerCase().trim()
-    return voters.filter((v) => {
-      if (filterTab === "belum" && v.sudah_coblos) return false
-      if (filterTab === "sudah" && !v.sudah_coblos) return false
-      if (filterTab === "kita" && v.status_dukungan !== "hijau") return false
-      const pool =
-        `${v.nama_lengkap} ${v.rt} ${v.no_dpt || ""} ${v.nomor_wa || ""}`.toLowerCase()
-      return !q || pool.includes(q)
+    return visitors.filter((v) => {
+      if (filterHadir === "hadir" && !v.sudah_coblos) return false
+      if (filterHadir === "belum" && v.sudah_coblos) return false
+      return (
+        !q ||
+        `${v.nama_lengkap} ${v.rt} ${v.no_dpt || ""}`.toLowerCase().includes(q)
+      )
     })
-  }, [voters, filterTab, searchQuery])
-
-  function getInitials(name = "") {
-    return name
-      .split(" ")
-      .slice(0, 2)
-      .map((w) => w[0])
-      .join("")
-      .toUpperCase()
-  }
+  }, [visitors, filterHadir, searchQuery])
 
   return (
     <div className="flex flex-col min-h-screen bg-bg-base font-body-md text-on-surface">
-      <header className="fixed inset-x-0 top-0 z-40 border-b bg-surface-card/95 backdrop-blur-md border-surface-border pt-safe">
-        <div className="flex items-center justify-between max-w-lg mx-auto h-14 px-margin-mobile gap-space-sm">
-          <div className="flex items-center min-w-0 gap-space-sm">
-            <span className="font-bold tracking-tight font-headline-sm text-headline-sm text-on-surface">
-              MY TPS
+      <header className="fixed inset-x-0 top-0 z-40 border-b bg-surface-card border-surface-border pt-safe">
+        <div className="flex items-center justify-between max-w-lg px-4 mx-auto h-14">
+          <div className="flex items-center gap-2">
+            <span className="font-bold font-headline-sm text-on-surface">
+              DASHBOARD TIM SAKSI
             </span>
-            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-status-kita-bg border border-status-kita-border text-status-kita-text font-label-sm text-label-sm">
-              <span className="w-1.5 h-1.5 rounded-full bg-primary-container"></span>
-              <span>TPS 01</span>
-            </div>
+            <span className="px-2 py-0.5 rounded-full bg-status-kita-bg text-status-kita-text font-label-sm text-xs">
+              {tallyForm.kode_tps}
+            </span>
           </div>
-          <div className="flex items-center gap-space-sm shrink-0">
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-surface-container-low">
-              <span className="w-2 h-2 rounded-full bg-primary"></span>
-              <span className="font-medium font-label-sm text-label-sm text-on-surface-variant">
-                Online
-              </span>
-            </div>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setActiveTab("realcount")}
+              className={`min-h-[36px] px-2.5 rounded-lg text-xs font-bold ${
+                activeTab === "realcount"
+                  ? "bg-primary text-on-primary"
+                  : "bg-surface-container text-secondary"
+              }`}
+            >
+              Realcount
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("pengunjung")}
+              className={`min-h-[36px] px-2.5 rounded-lg text-xs font-bold ${
+                activeTab === "pengunjung"
+                  ? "bg-primary text-on-primary"
+                  : "bg-surface-container text-secondary"
+              }`}
+            >
+              Pengunjung
+            </button>
           </div>
         </div>
       </header>
 
-      <main className="flex flex-col flex-1 w-full max-w-lg pt-16 mx-auto pb-28 px-margin-mobile">
+      <main className="flex-1 w-full max-w-lg px-4 pt-16 mx-auto pb-28">
         {notice && (
           <div
             role="status"
-            className="mb-3 bg-status-kita-bg border border-status-kita-border text-status-kita-text px-3.5 py-2.5 rounded-xl flex items-center gap-2 font-label-sm text-label-sm"
+            className="mb-3 bg-status-kita-bg border border-status-kita-border text-status-kita-text px-3.5 py-2.5 rounded-xl flex items-center gap-2 text-xs font-bold"
           >
             <span className="material-symbols-outlined text-[18px]">
               check_circle
@@ -199,381 +254,238 @@ export default function SaksiTpsPage() {
           </div>
         )}
 
-        <section className="w-full p-4 mb-3 border shadow-sm bg-surface-card border-surface-border rounded-2xl">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="relative shrink-0">
-              <div className="flex items-center justify-center text-lg font-bold rounded-full w-14 h-14 bg-primary-container text-on-primary">
-                FS
-              </div>
-              <span className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-primary rounded-full border-2 border-surface-card"></span>
+        {activeTab === "realcount" ? (
+          <section className="flex flex-col gap-4 p-4 mt-2 border shadow-sm bg-surface-card border-surface-border rounded-2xl">
+            <div className="pb-3 border-b border-surface-border">
+              <h1 className="font-headline-sm text-headline-sm text-on-surface">
+                Menu 1: Input Suara Real Count TPS
+              </h1>
+              <p className="text-xs text-secondary mt-0.5">
+                Masukkan hasil penghitungan suara sah dan tidak sah dari
+                formulir C-Hasil Plano.
+              </p>
             </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <h1 className="truncate font-headline-sm text-headline-sm text-on-surface">
-                  Fajar Sidiq
-                </h1>
-                <span className="material-symbols-outlined text-[18px] text-primary">
-                  verified
-                </span>
-              </div>
-              <div className="inline-flex items-center gap-1 mt-0.5 px-2 py-0.5 bg-surface-container-low rounded-full">
-                <span className="material-symbols-outlined text-[14px] text-primary">
-                  pin_drop
-                </span>
-                <span className="truncate font-label-sm text-label-sm text-secondary">
-                  Saksi TPS 01 • Dusun Krajan
-                </span>
-              </div>
-            </div>
-          </div>
 
-          <div className="grid grid-cols-4 gap-1 py-2.5 bg-bg-base rounded-xl mb-3 text-center">
-            <div className="flex flex-col items-center justify-center px-1">
-              <span className="font-headline-sm text-headline-sm text-on-surface">
-                {stats.totalDpt}
-              </span>
-              <span className="font-label-sm text-label-sm text-secondary">
-                Total DPT
-              </span>
-            </div>
-            <div className="flex flex-col items-center justify-center px-1">
-              <span className="font-headline-sm text-headline-sm text-primary">
-                {stats.hadir}
-              </span>
-              <span className="font-label-sm text-label-sm text-secondary">
-                Hadir
-              </span>
-            </div>
-            <div className="flex flex-col items-center justify-center px-1">
-              <span className="font-headline-sm text-headline-sm text-status-ragu-text">
-                {stats.belum}
-              </span>
-              <span className="font-label-sm text-label-sm text-secondary">
-                Belum
-              </span>
-            </div>
-            <div className="flex flex-col items-center justify-center px-1">
-              <span className="font-headline-sm text-headline-sm text-primary-container">
-                86%
-              </span>
-              <span className="font-label-sm text-label-sm text-secondary">
-                Suara Kita
-              </span>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={() => setShowRealCountModal(true)}
-              className="min-h-[44px] px-3 bg-primary-container hover:bg-primary-dark text-on-primary font-label-md text-label-md rounded-xl shadow-sm flex items-center justify-center gap-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            >
-              <span className="material-symbols-outlined text-[18px]">
-                bolt
-              </span>
-              <span className="truncate">+ Real Count</span>
-            </button>
-            <button
-              type="button"
-              onClick={handleShareUnvoted}
-              className="min-h-[44px] px-3 bg-surface-card hover:bg-bg-base border border-surface-border text-on-surface font-label-md text-label-md rounded-xl shadow-sm flex items-center justify-center gap-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            >
-              <span className="material-symbols-outlined text-[18px] text-status-kita-text">
-                share
-              </span>
-              <span className="truncate">Bagikan Belum</span>
-            </button>
-          </div>
-        </section>
-
-        <section className="w-full mb-3 space-y-2">
-          <div className="relative w-full">
-            <label htmlFor="saksiSearch" className="sr-only">
-              Cari pemilih atau nomor HP
-            </label>
-            <span className="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-secondary text-[20px]">
-              search
-            </span>
-            <input
-              id="saksiSearch"
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Cari pemilih atau no HP..."
-              className="w-full min-h-[44px] pl-10 pr-4 bg-surface-card border border-surface-border rounded-xl text-on-surface placeholder:text-secondary font-body-md text-body-md shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            />
-          </div>
-
-          <div className="flex items-center gap-1.5 overflow-x-auto py-0.5">
-            <button
-              type="button"
-              onClick={() => setFilterTab("all")}
-              className={`shrink-0 min-h-[44px] px-3.5 rounded-full font-label-sm text-label-sm flex items-center gap-1 transition-colors ${
-                filterTab === "all"
-                  ? "bg-primary-container text-on-primary"
-                  : "bg-surface-card border border-surface-border text-secondary"
-              }`}
-            >
-              <span>Semua ({voters.length})</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setFilterTab("belum")}
-              className={`shrink-0 min-h-[44px] px-3.5 rounded-full font-label-sm text-label-sm flex items-center gap-1.5 transition-colors ${
-                filterTab === "belum"
-                  ? "bg-status-ragu-bg border border-status-ragu-border text-status-ragu-text"
-                  : "bg-surface-card border border-surface-border text-secondary"
-              }`}
-            >
-              <span className="w-1.5 h-1.5 rounded-full bg-status-ragu-text"></span>
-              <span>
-                Belum Hadir ({voters.filter((v) => !v.sudah_coblos).length})
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setFilterTab("sudah")}
-              className={`shrink-0 min-h-[44px] px-3.5 rounded-full font-label-sm text-label-sm flex items-center gap-1 transition-colors ${
-                filterTab === "sudah"
-                  ? "bg-primary-container text-on-primary"
-                  : "bg-surface-card border border-surface-border text-secondary"
-              }`}
-            >
-              <span>
-                Sudah Coblos ({voters.filter((v) => v.sudah_coblos).length})
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setFilterTab("kita")}
-              className={`shrink-0 min-h-[44px] px-3.5 rounded-full font-label-sm text-label-sm flex items-center gap-1 transition-colors ${
-                filterTab === "kita"
-                  ? "bg-primary-container text-on-primary"
-                  : "bg-surface-card border border-surface-border text-secondary"
-              }`}
-            >
-              <span>Pemilih Kita ({stats.kitaCount})</span>
-            </button>
-          </div>
-        </section>
-
-        <div className="flex items-center justify-between px-1 mb-2">
-          <div className="flex items-center gap-1.5">
-            <span className="font-label-md text-label-md text-on-surface">
-              Daftar Kawal Hadir
-            </span>
-            <span className="font-normal font-label-sm text-label-sm text-secondary">
-              (Prioritas Belum Hadir)
-            </span>
-          </div>
-          <span className="font-semibold font-label-sm text-label-sm text-primary">
-            Urut No. DPT
-          </span>
-        </div>
-
-        <section className="w-full mb-3 space-y-2">
-          {filteredList.map((voter) => (
-            <article
-              key={voter.id}
-              className={`w-full bg-surface-card border border-surface-border rounded-2xl shadow-sm p-3.5 flex items-center justify-between gap-2.5 transition-all ${
-                voter.sudah_coblos ? "opacity-90" : ""
-              }`}
-            >
-              <div className="flex items-center min-w-0 gap-3">
-                <div className="relative shrink-0">
-                  <div
-                    className={`w-11 h-11 rounded-full font-label-md text-label-md flex items-center justify-center ${
-                      voter.sudah_coblos
-                        ? "bg-surface-container text-secondary"
-                        : "bg-status-ragu-bg text-status-ragu-text"
-                    }`}
-                  >
-                    {getInitials(voter.nama_lengkap)}
-                  </div>
-                </div>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <h2 className="truncate font-label-lg text-label-lg text-on-surface">
-                      {voter.nama_lengkap}
-                    </h2>
-                    {voter.sudah_coblos ? (
-                      <span className="shrink-0 px-2 py-0.5 bg-status-kita-bg border border-status-kita-border text-status-kita-text rounded-full font-label-sm text-label-sm leading-none flex items-center gap-0.5">
-                        <span className="material-symbols-outlined text-[12px]">
-                          check
-                        </span>
-                        <span>Sudah Coblos</span>
-                      </span>
-                    ) : (
-                      <span className="shrink-0 px-2 py-0.5 bg-status-ragu-bg border border-status-ragu-border text-status-ragu-text rounded-full font-label-sm text-label-sm leading-none">
-                        Belum Hadir
-                      </span>
-                    )}
-                  </div>
-                  <p className="font-body-sm text-body-sm text-secondary truncate mt-0.5">
-                    {voter.jumlah_anggota_kk || 1} Warga • {voter.rt} •{" "}
-                    {voter.sudah_coblos
-                      ? `Jam ${voter.waktu_coblos || "09:00 WIB"}`
-                      : `No. DPT ${voter.no_dpt || "#042"}`}
-                  </p>
-                </div>
-              </div>
-
-              {voter.sudah_coblos ? (
-                <div className="flex items-center justify-center rounded-full w-11 h-11 bg-status-kita-bg text-status-kita-text shrink-0">
-                  <span className="material-symbols-outlined text-[22px]">
-                    check_circle
-                  </span>
-                </div>
-              ) : (
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <a
-                    aria-label={`Ingatkan ${voter.nama_lengkap} via WhatsApp`}
-                    href={`https://wa.me/${(voter.nomor_wa || "6281234567890").replace(/^0/, "62")}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="min-w-[44px] min-h-[44px] rounded-xl bg-status-kita-bg text-status-kita-text flex items-center justify-center hover:bg-status-kita-border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                  >
-                    <span className="material-symbols-outlined text-[20px]">
-                      chat
-                    </span>
-                  </a>
-                  <button
-                    type="button"
-                    onClick={() => handleMarkVoted(voter.id)}
-                    className="min-h-[44px] px-3 bg-primary hover:bg-primary-dark text-on-primary rounded-xl font-label-sm text-label-sm flex items-center gap-1 shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                  >
-                    <span className="material-symbols-outlined text-[16px]">
-                      check
-                    </span>
-                    <span>Coblos</span>
-                  </button>
-                </div>
-              )}
-            </article>
-          ))}
-        </section>
-
-        <section className="w-full bg-surface-card border border-surface-border rounded-2xl shadow-sm p-3.5">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-1.5 min-w-0">
-              <span className="material-symbols-outlined text-primary text-[18px]">
-                flag
-              </span>
-              <span className="truncate font-label-md text-label-md text-on-surface">
-                Target TPS 01: 120 Suara
-              </span>
-            </div>
-            <span className="font-bold font-label-md text-label-md text-primary shrink-0">
-              {Math.min(100, Math.round((stats.hadir / 120) * 100))}%
-            </span>
-          </div>
-          <div className="w-full h-2.5 bg-surface-container rounded-full overflow-hidden mb-1.5">
-            <div
-              className="h-full transition-all duration-300 rounded-full bg-primary-container"
-              style={{ width: `${Math.min(100, (stats.hadir / 120) * 100)}%` }}
-            ></div>
-          </div>
-          <div className="flex items-center justify-between text-secondary font-body-sm text-body-sm">
-            <span>Terpenuhi {stats.hadir} suara</span>
-            <span>Sisa {Math.max(0, 120 - stats.hadir)} suara lagi</span>
-          </div>
-        </section>
-      </main>
-
-      {showRealCountModal && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="modal-realcount-title"
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-inverse-surface/60"
-        >
-          <div className="flex flex-col w-full max-w-sm gap-3 p-4 border shadow-xl bg-surface-card border-surface-border rounded-2xl">
-            <div className="flex items-center justify-between">
-              <h2
-                id="modal-realcount-title"
-                className="font-headline-sm text-headline-sm text-on-surface"
-              >
-                Input Real Count TPS 01
-              </h2>
-              <button
-                type="button"
-                onClick={() => setShowRealCountModal(false)}
-                aria-label="Tutup dialog"
-                className="min-w-[44px] min-h-[44px] rounded-lg flex items-center justify-center text-secondary hover:text-on-surface"
-              >
-                <span className="material-symbols-outlined">close</span>
-              </button>
-            </div>
             <form
               onSubmit={handleSaveRealCount}
-              className="flex flex-col gap-3"
+              className="flex flex-col gap-3.5"
             >
               <div>
-                <label className="block mb-1 font-label-sm text-label-sm text-status-kita-text">
-                  01. H. Rahmat Hidayat (Kita)
+                <label className="block mb-1 text-xs font-label-sm text-secondary">
+                  Pilih Lokasi TPS Tugas
+                </label>
+                <select
+                  value={tallyForm.kode_tps}
+                  onChange={(e) =>
+                    setTallyForm({ ...tallyForm, kode_tps: e.target.value })
+                  }
+                  className="w-full min-h-[44px] px-3 bg-surface border border-surface-border rounded-xl font-bold text-on-surface"
+                >
+                  <option value="TPS 01">TPS 01 Krajan Barat</option>
+                  <option value="TPS 02">TPS 02 Krajan Timur</option>
+                  <option value="TPS 03">TPS 03 Sukamaju</option>
+                  <option value="TPS 04">TPS 04 Harapan Makmur</option>
+                </select>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-status-kita-bg border border-status-kita-border">
+                <label className="block mb-1 text-sm font-bold font-label-md text-status-kita-text">
+                  01. H. Rahmat Hidayat (Calon Kita)
                 </label>
                 <input
                   type="number"
+                  min="0"
+                  required
                   value={tallyForm.paslon1}
                   onChange={(e) =>
                     setTallyForm({ ...tallyForm, paslon1: e.target.value })
                   }
-                  className="w-full min-h-[44px] px-3 bg-status-kita-bg border border-status-kita-border rounded-lg font-bold text-status-kita-text"
+                  className="w-full min-h-[48px] px-3 bg-surface-card border border-status-kita-border rounded-xl font-headline-md text-status-kita-text"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block mb-1 font-label-sm text-label-sm text-secondary">
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-3 border rounded-xl bg-surface-container-low border-surface-border">
+                  <label className="block mb-1 text-xs font-bold font-label-sm text-on-surface">
                     02. Drs. Bambang
                   </label>
                   <input
                     type="number"
+                    min="0"
+                    required
                     value={tallyForm.paslon2}
                     onChange={(e) =>
                       setTallyForm({ ...tallyForm, paslon2: e.target.value })
                     }
-                    className="w-full min-h-[44px] px-3 bg-surface border border-surface-border rounded-lg text-on-surface"
+                    className="w-full min-h-[44px] px-3 bg-surface-card border border-surface-border rounded-lg font-bold text-on-surface"
                   />
                 </div>
-                <div>
-                  <label className="block mb-1 font-label-sm text-label-sm text-secondary">
+
+                <div className="p-3 border rounded-xl bg-surface-container-low border-surface-border">
+                  <label className="block mb-1 text-xs font-bold font-label-sm text-on-surface">
                     03. Hj. Ratna Sari
                   </label>
                   <input
                     type="number"
+                    min="0"
+                    required
                     value={tallyForm.paslon3}
                     onChange={(e) =>
                       setTallyForm({ ...tallyForm, paslon3: e.target.value })
                     }
-                    className="w-full min-h-[44px] px-3 bg-surface border border-surface-border rounded-lg text-on-surface"
+                    className="w-full min-h-[44px] px-3 bg-surface-card border border-surface-border rounded-lg font-bold text-on-surface"
                   />
                 </div>
               </div>
-              <div>
-                <label className="block mb-1 font-label-sm text-label-sm text-status-lain-text">
-                  Suara Tidak Sah
+
+              <div className="p-3 border rounded-xl bg-status-lain-bg/50 border-status-lain-border">
+                <label className="block mb-1 text-xs font-bold font-label-sm text-status-lain-text">
+                  Suara Tidak Sah / Rusak
                 </label>
                 <input
                   type="number"
+                  min="0"
+                  required
                   value={tallyForm.tidakSah}
                   onChange={(e) =>
                     setTallyForm({ ...tallyForm, tidakSah: e.target.value })
                   }
-                  className="w-full min-h-[44px] px-3 bg-surface border border-surface-border rounded-lg text-on-surface"
+                  className="w-full min-h-[44px] px-3 bg-surface-card border border-status-lain-border rounded-lg font-bold text-status-lain-text"
                 />
               </div>
+
+              <div className="flex items-center justify-between p-3 rounded-xl bg-surface-container">
+                <span className="text-xs font-semibold text-secondary">
+                  Total Suara Sah Masuk:
+                </span>
+                <span className="font-bold font-headline-sm text-on-surface">
+                  {totalSuaraSah} Suara
+                </span>
+              </div>
+
               <button
                 type="submit"
-                className="w-full min-h-[48px] bg-primary-container hover:bg-primary-dark text-on-primary font-label-md text-label-md rounded-xl mt-1"
+                disabled={saving}
+                className="w-full min-h-[48px] bg-primary-container hover:bg-primary-dark text-on-primary font-bold text-sm rounded-xl flex items-center justify-center gap-2 shadow-sm"
               >
-                Kirim Hasil C-Plano ke War Room
+                <span className="material-symbols-outlined text-[20px]">
+                  save
+                </span>
+                <span>
+                  {saving ? "Menyimpan..." : "Simpan Suara Real Count"}
+                </span>
               </button>
             </form>
-          </div>
-        </div>
-      )}
+          </section>
+        ) : (
+          <div className="flex flex-col gap-3 mt-2">
+            <section className="p-4 border shadow-sm bg-surface-card border-surface-border rounded-2xl">
+              <h1 className="font-headline-sm text-headline-sm text-on-surface">
+                Menu 2: Daftar Pengunjung TPS
+              </h1>
+              <p className="text-xs text-secondary mt-0.5 mb-3">
+                Catat dan centang warga yang hadir mencoblos di{" "}
+                {tallyForm.kode_tps}.
+              </p>
 
-      <MobileNav />
+              <form onSubmit={handleAddVisitor} className="flex gap-2">
+                <input
+                  type="text"
+                  value={namaPengunjungBaru}
+                  onChange={(e) => setNamaPengunjungBaru(e.target.value)}
+                  placeholder="Tambah nama pengunjung hadir..."
+                  className="flex-1 min-h-[44px] px-3 bg-surface border border-surface-border rounded-xl text-sm"
+                />
+                <select
+                  value={rtPengunjungBaru}
+                  onChange={(e) => setRtPengunjungBaru(e.target.value)}
+                  className="min-h-[44px] px-2 bg-surface border border-surface-border rounded-xl text-xs font-bold"
+                >
+                  <option value="RT 01">RT 01</option>
+                  <option value="RT 02">RT 02</option>
+                  <option value="RT 03">RT 03</option>
+                </select>
+                <button
+                  type="submit"
+                  className="min-h-[44px] px-3 bg-primary text-on-primary rounded-xl text-xs font-bold shrink-0"
+                >
+                  + Hadir
+                </button>
+              </form>
+            </section>
+
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Cari nama pengunjung TPS..."
+                className="flex-1 min-h-[44px] px-3.5 bg-surface-card border border-surface-border rounded-xl text-sm"
+              />
+              <select
+                value={filterHadir}
+                onChange={(e) => setFilterHadir(e.target.value)}
+                className="min-h-[44px] px-3 bg-surface-card border border-surface-border rounded-xl text-xs font-bold"
+              >
+                <option value="all">Semua ({visitors.length})</option>
+                <option value="hadir">
+                  Hadir ({visitors.filter((v) => v.sudah_coblos).length})
+                </option>
+                <option value="belum">
+                  Belum ({visitors.filter((v) => !v.sudah_coblos).length})
+                </option>
+              </select>
+            </div>
+
+            <section className="flex flex-col gap-2">
+              {filteredVisitors.map((v) => (
+                <article
+                  key={v.id}
+                  className="bg-surface-card border border-surface-border rounded-xl p-3.5 flex items-center justify-between gap-2 shadow-sm"
+                >
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <h2 className="font-bold truncate font-label-lg text-on-surface">
+                        {v.nama_lengkap}
+                      </h2>
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                          v.sudah_coblos
+                            ? "bg-status-kita-bg text-status-kita-text"
+                            : "bg-status-ragu-bg text-status-ragu-text"
+                        }`}
+                      >
+                        {v.sudah_coblos ? "Sudah Hadir" : "Belum Hadir"}
+                      </span>
+                    </div>
+                    <p className="text-xs text-secondary mt-0.5">
+                      {v.rt} • {v.no_dpt || "#DPT"}{" "}
+                      {v.waktu_coblos ? `• Pukul ${v.waktu_coblos}` : ""}
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleToggleHadir(v)}
+                    className={`min-h-[44px] px-3.5 rounded-xl text-xs font-bold flex items-center gap-1 shrink-0 transition-colors ${
+                      v.sudah_coblos
+                        ? "bg-surface-container text-secondary"
+                        : "bg-primary text-on-primary"
+                    }`}
+                  >
+                    <span className="material-symbols-outlined text-[16px]">
+                      {v.sudah_coblos ? "check_circle" : "how_to_reg"}
+                    </span>
+                    <span>{v.sudah_coblos ? "Tercatat" : "Tandai Hadir"}</span>
+                  </button>
+                </article>
+              ))}
+            </section>
+          </div>
+        )}
+      </main>
+
+      <MobileNav activeSaksiTab={activeTab} onChangeSaksiTab={setActiveTab} />
     </div>
   )
 }
