@@ -1,0 +1,26 @@
+# Aturan Pengembangan Aplikasi MY TPS - Timses Haji Rohmat
+
+Seluruh penulisan kode, desain antarmuka, tata letak responsif, aksesibilitas, dan teks pada proyek ini wajib mematuhi file aturan di dalam folder `./ai-rules/`:
+
+1. `./ai-rules/antislop-copywriting.md`:
+   - Dilarang menggunakan karakter em dash atau double hyphen di seluruh teks antarmuka[cite: 2].
+   - Gunakan kalimat aktif yang jelas dalam Bahasa Indonesia tanpa kata klise AI[cite: 2].
+   - Jangan pernah mengarang klaim, angka, atau kutipan fiktif sebagai fakta[cite: 2].
+
+2. `./ai-rules/antislop-human.md`:
+   - Pastikan rasio kontras teks memenuhi standar WCAG AA (minimal 4.5:1 untuk teks normal, 3:1 untuk teks berukuran 18px ke atas dan batas komponen interaktif).
+   - Jangan pernah menghapus fokus keyboard (`outline: none`) tanpa pengganti `:focus-visible` yang memiliki kontras minimal 3:1.
+   - Setiap tampilan data wajib memiliki status loading, kosong (empty state), dan gagal (error state) yang komunikatif dengan teks serta ikon, bukan hanya mengandalkan warna[cite: 3].
+
+3. `./ai-rules/antislop-layoutmobile.md`:
+   - Semua tombol, tautan, dan elemen interaktif wajib memiliki area sentuh minimal 44x44 piksel (`min-h-[44px] min-w-[44px]`) dengan jarak antar elemen yang aman.
+   - Pastikan tidak ada kebocoran scroll horizontal pada layar ponsel dan sediakan ruang aman untuk navigasi bawah (`pb-safe`).
+
+4. `./ai-rules/antisllop-ui.md`:
+   - Gunakan palet warna resmi MY TPS (`#00652c`, `#15803d`, `#DCFCE7`, `#FEF3C7`, `#FEE2E2`, `#F8FAFC`, `#FFFFFF`) tanpa gradien biru-ungu generik[cite: 1, 5].
+   - Batasi efek blur (`backdrop-blur`) maksimal pada 1 hingga 2 elemen navigasi melayang[cite: 5].
+   - Dilarang menggunakan emoji sebagai dekorasi pada judul, tombol, atau badge[cite: 5].
+
+5. `./ai-rules/antislop-code.md`:
+   - Dilarang menulis komentar dekoratif (seperti garis pemisah `// ====`), narasi langkah demi langkah (`// Step 1`), atau komentar yang mengulang isi kode yang sudah jelas[cite: 6].
+   - Tulis komentar maksimal 1 hingga 2 baris hanya untuk menjelaskan batasan teknis atau aturan bisnis yang tidak terlihat langsung dari nama fungsi[cite: 6].
